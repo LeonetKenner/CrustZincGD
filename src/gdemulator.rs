@@ -1,5 +1,6 @@
 use godot::prelude::*;
 use godot::classes::Node;
+use std::time::Instant;
 use crate::emulator::{self as emu_module, StepResult}; // Avoid name conflict
 
 #[derive(GodotClass)]
@@ -35,19 +36,54 @@ impl EmulatorNode {
         self.emu.reset();
     }
     #[func]
-    fn step(&mut self){
-        if self.emu.step()==StepResult::Continue {
-            godot_warn!("Stepped!");
-        }
-        else if self.emu.step()==StepResult::Halt{
-            godot_warn!("Halted!");
-            godot_print!("Resetting...");
-            self.reset();
+    fn step(&mut self) -> bool {
+    match self.emu.step() {
+        StepResult::Continue => true,
+        StepResult::Halt => {
+            //godot_print!("Resetting...");
+            //self.reset();
+            false
         }
     }
-    #[func]
+}    #[func]
     fn print_state(&mut self){
         godot_print!("{}", self.emu.get_state_string());
 
     }
+    #[func]
+    fn benchmark(&mut self, steps: i32) -> f64 {
+        let start = Instant::now();
+        for _ in 0..steps {
+            self.emu.step();
+        }
+        let elapsed = start.elapsed().as_secs_f64();
+        steps as f64 / elapsed
+    }
+    #[func]
+fn benchmark_multi(&mut self, program: PackedByteArray, iterations: i32, n_tests: i32) -> f64 {
+    // Convert PackedByteArray to Vec<u16> like in load_program
+    let program_vec: Vec<u16> = program
+        .as_slice()
+        .chunks_exact(2)
+        .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
+        .collect();
+
+    let mut total_time = 0.0;
+
+    for _ in 0..n_tests {
+        self.emu.reset();
+        self.emu.load_program(&program_vec);
+
+        let start = Instant::now();
+        for _ in 0..iterations {
+            self.emu.step();
+        }
+        let elapsed = start.elapsed().as_secs_f64();
+        total_time += elapsed;
+    }
+
+    let avg_time = total_time / n_tests as f64;
+    iterations as f64 / avg_time
+}
+
 }

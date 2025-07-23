@@ -13,9 +13,15 @@ struct AssemblrNode {
 #[godot_api]
 impl AssemblrNode {
     #[func]
-    fn assemble(&mut self, source: String) -> PackedInt32Array {
+    fn assemble(&mut self, source: String) -> PackedByteArray {
         let result: Vec<u16> = assemblenz(&source);
-        let result_32: Vec<i32> = result.iter().map(|&x| x as i32).collect();
-        PackedInt32Array::from(result_32)
+
+        let mut byte_vec = Vec::with_capacity(result.len() * 2);
+        for word in result {
+            byte_vec.push((word & 0xFF) as u8);         // Lower byte
+            byte_vec.push((word >> 8) as u8);           // Upper byte
+        }
+
+        PackedByteArray::from(byte_vec)
     }
 }
