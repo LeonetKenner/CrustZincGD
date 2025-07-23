@@ -1,6 +1,6 @@
 pub mod emulator;
-pub mod gdemulator;
 pub(crate) mod gdassembler;
+pub mod gdemulator;
 use godot::prelude::*;
 pub mod neozasm;
 struct CrustZinc;

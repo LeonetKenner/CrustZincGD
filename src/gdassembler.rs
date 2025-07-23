@@ -1,5 +1,5 @@
-use godot::prelude::*;
 use godot::classes::Node;
+use godot::prelude::*;
 
 use crate::neozasm::assemble as assemblenz;
 
@@ -18,8 +18,8 @@ impl AssemblrNode {
 
         let mut byte_vec = Vec::with_capacity(result.len() * 2);
         for word in result {
-            byte_vec.push((word & 0xFF) as u8);         // Lower byte
-            byte_vec.push((word >> 8) as u8);           // Upper byte
+            byte_vec.push((word & 0xFF) as u8); // Lower byte
+            byte_vec.push((word >> 8) as u8); // Upper byte
         }
 
         PackedByteArray::from(byte_vec)

@@ -1,5 +1,3 @@
-
-
 const MEM_SIZE: usize = 65536;
 const NUM_REGS: usize = 12;
 
@@ -184,42 +182,63 @@ impl Emulator {
                     self.write_reg(c, 0);
                     self.write_reg(REG_O as u16, self.regs[REG_O] | 2); // Set carry flag
                 } else {
-                        self.write_reg(c, res as u16);
+                    self.write_reg(c, res as u16);
                     self.write_reg(REG_O as u16, self.regs[REG_O] & !2); // Clear carry flag
                 }
-
             }
             Opcode::Sub => {
                 let res = va as i32 - vb as i32;
-if res < 0 {
-    self.write_reg(c, 0);
-} else {
-    self.write_reg(c, res as u16);
-}
-
-},
+                if res < 0 {
+                    self.write_reg(c, 0);
+                } else {
+                    self.write_reg(c, res as u16);
+                }
+            }
             Opcode::Mul => {
-               let res = (va as u32) * (vb as u32);
-if res > 0xFFFF {
-    self.write_reg(REG_C as u16, 0);
-    self.write_reg(REG_D as u16, 0);
-} else {
-    self.write_reg(REG_C as u16, 0);
-    self.write_reg(REG_D as u16, res as u16);
-}
-
+                let res = (va as u32) * (vb as u32);
+                if res > 0xFFFF {
+                    self.write_reg(REG_C as u16, 0);
+                    self.write_reg(REG_D as u16, 0);
+                } else {
+                    self.write_reg(REG_C as u16, 0);
+                    self.write_reg(REG_D as u16, res as u16);
+                }
             }
             Opcode::And => self.write_reg(c, va & vb),
             Opcode::Or => self.write_reg(c, va | vb),
             Opcode::Xor => self.write_reg(c, va ^ vb),
             Opcode::Not => self.write_reg(b, !va),
             Opcode::Jmp => self.write_reg(REG_IP as u16, c),
-            Opcode::Jml => if va < vb { self.write_reg(REG_IP as u16, c) },
-            Opcode::Jmle => if va <= vb { self.write_reg(REG_IP as u16, c) },
-            Opcode::Jmb => if va > vb { self.write_reg(REG_IP as u16, c) },
-            Opcode::Jmbe => if va >= vb { self.write_reg(REG_IP as u16, c) },
-            Opcode::Jme => if va == vb { self.write_reg(REG_IP as u16, c) },
-            Opcode::Jmne => if va != vb { self.write_reg(REG_IP as u16, c) },
+            Opcode::Jml => {
+                if va < vb {
+                    self.write_reg(REG_IP as u16, c)
+                }
+            }
+            Opcode::Jmle => {
+                if va <= vb {
+                    self.write_reg(REG_IP as u16, c)
+                }
+            }
+            Opcode::Jmb => {
+                if va > vb {
+                    self.write_reg(REG_IP as u16, c)
+                }
+            }
+            Opcode::Jmbe => {
+                if va >= vb {
+                    self.write_reg(REG_IP as u16, c)
+                }
+            }
+            Opcode::Jme => {
+                if va == vb {
+                    self.write_reg(REG_IP as u16, c)
+                }
+            }
+            Opcode::Jmne => {
+                if va != vb {
+                    self.write_reg(REG_IP as u16, c)
+                }
+            }
             Opcode::Save => {
                 let addr = self.regs[REG_MS].wrapping_add(self.regs[REG_IP]) as usize;
                 self.write_mem_u16(addr, va);
@@ -248,9 +267,9 @@ if res > 0xFFFF {
         StepResult::Continue
     }
 
-pub fn get_state_string(&self) -> String {
-    format!(
-        "A  = {:#06X} ({})\n\
+    pub fn get_state_string(&self) -> String {
+        format!(
+            "A  = {:#06X} ({})\n\
          B  = {:#06X} ({})\n\
          C  = {:#06X} ({})\n\
          D  = {:#06X} ({})\n\
@@ -262,42 +281,52 @@ pub fn get_state_string(&self) -> String {
          I  = {:#06X} ({})\n\
          O  = {:#06X} ({})\n\
          ST = {:#06X} ({})",
-        self.regs[REG_A], self.regs[REG_A],
-        self.regs[REG_B], self.regs[REG_B],
-        self.regs[REG_C], self.regs[REG_C],
-        self.regs[REG_D], self.regs[REG_D],
-        self.regs[REG_IP], self.regs[REG_IP],
-        self.regs[REG_SS], self.regs[REG_SS],
-        self.regs[REG_SO], self.regs[REG_SO],
-        self.regs[REG_MS], self.regs[REG_MS],
-        self.regs[REG_MO], self.regs[REG_MO],
-        self.regs[REG_I], self.regs[REG_I],
-        self.regs[REG_O], self.regs[REG_O],
-        self.regs[REG_ST], self.regs[REG_ST],
-    )
-}
-
-
+            self.regs[REG_A],
+            self.regs[REG_A],
+            self.regs[REG_B],
+            self.regs[REG_B],
+            self.regs[REG_C],
+            self.regs[REG_C],
+            self.regs[REG_D],
+            self.regs[REG_D],
+            self.regs[REG_IP],
+            self.regs[REG_IP],
+            self.regs[REG_SS],
+            self.regs[REG_SS],
+            self.regs[REG_SO],
+            self.regs[REG_SO],
+            self.regs[REG_MS],
+            self.regs[REG_MS],
+            self.regs[REG_MO],
+            self.regs[REG_MO],
+            self.regs[REG_I],
+            self.regs[REG_I],
+            self.regs[REG_O],
+            self.regs[REG_O],
+            self.regs[REG_ST],
+            self.regs[REG_ST],
+        )
+    }
 }
 
 /**fn main() {
     let source = r#"
-        mov 25, A         
-        jmp loop          
+        mov 25, A
+        jmp loop
 
 odd:
-        mul A, D          
-        add D, 1, A       
+        mul A, D
+        add D, 1, A
         jmp loop
 
 even:
-        shr A, 1, A       
+        shr A, 1, A
 
 loop:
-        jme A, 1, end    
-        and A, 1, B       
-        jme B, 1, odd     
-        jmp even        
+        jme A, 1, end
+        and A, 1, B
+        jme B, 1, odd
+        jmp even
 
 end:
         halt
@@ -325,6 +354,6 @@ end:
     emu.print_state();
 }
 **/
-fn blank(){{
-
-}}
+fn blank() {
+    {}
+}
