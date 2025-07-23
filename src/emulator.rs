@@ -161,7 +161,7 @@ impl Emulator {
             let reg_idx = param & 0xFFF;
             let offset = (param >> 12) & 0xF;
             let reg_val = self.read_reg(reg_idx);
-            
+
             if offset != 0 {
                 // Handle negative offsets (offset > 8 means it was originally negative)
                 if offset > 8 {

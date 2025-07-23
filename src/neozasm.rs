@@ -40,24 +40,24 @@ fn resolve_reg_expr(s: &str, symbols: &HashMap<String, u16>) -> Option<(u16, u16
     if let Some((lhs, rhs)) = s.split_once('+') {
         let lhs = lhs.trim();
         let rhs = rhs.trim();
-        
+
         // Try lhs as register, rhs as constant/expression
         if let Some(reg_idx) = reg_index(lhs) {
             let offset = resolve_expr(rhs, symbols);
             return Some((reg_idx, offset));
         }
-        
-        // Try rhs as register, lhs as constant/expression  
+
+        // Try rhs as register, lhs as constant/expression
         if let Some(reg_idx) = reg_index(rhs) {
             let offset = resolve_expr(lhs, symbols);
             return Some((reg_idx, offset));
         }
     }
-    
+
     if let Some((lhs, rhs)) = s.split_once('-') {
         let lhs = lhs.trim();
         let rhs = rhs.trim();
-        
+
         // Only support register - constant (not constant - register)
         if let Some(reg_idx) = reg_index(lhs) {
             let offset = resolve_expr(rhs, symbols);
@@ -65,7 +65,7 @@ fn resolve_reg_expr(s: &str, symbols: &HashMap<String, u16>) -> Option<(u16, u16
             return Some((reg_idx, (-(offset as i32)) as u16));
         }
     }
-    
+
     None
 }
 
@@ -74,23 +74,23 @@ fn resolve_operand(s: &str, symbols: &HashMap<String, u16>) -> (u16, u16, bool) 
     if let Ok(n) = s.parse::<u16>() {
         return (n, 0, true); // (value, offset, is_immediate)
     }
-    
+
     // Check if it's a plain register
     if let Some(reg) = reg_index(s) {
         return (reg, 0, false); // (reg_index, offset, is_immediate)
     }
-    
+
     // Check if it's a register+constant expression
     if let Some((reg_idx, offset)) = resolve_reg_expr(s, symbols) {
         return (reg_idx, offset, false); // Register with offset
     }
-    
+
     // Check if it's a pure constant/label expression
     if symbols.contains_key(s) || s.contains('+') || s.contains('-') {
         let val = resolve_expr(s, symbols);
         return (val, 0, true); // (value, offset, is_immediate)
     }
-    
+
     panic!("Invalid operand '{}'", s);
 }
 
@@ -302,7 +302,7 @@ pub fn assemble(source: &str) -> Vec<u16> {
         let a_encoded = a | ((a_offset & 0xF) << 12);
         let b_encoded = b | ((b_offset & 0xF) << 12);
         let c_encoded = c | ((c_offset & 0xF) << 12);
-        
+
         result.extend_from_slice(&[instr, a_encoded, b_encoded, c_encoded]);
     }
 
