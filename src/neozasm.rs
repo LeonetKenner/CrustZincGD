@@ -35,16 +35,62 @@ fn resolve_expr(s: &str, symbols: &HashMap<String, u16>) -> u16 {
     panic!("Unknown constant or label: '{}'", s);
 }
 
-fn resolve_operand(s: &str, symbols: &HashMap<String, u16>) -> (u16, bool) {
+// New function to handle register+constant expressions
+fn resolve_reg_expr(s: &str, symbols: &HashMap<String, u16>) -> Option<(u16, u16)> {
+    if let Some((lhs, rhs)) = s.split_once('+') {
+        let lhs = lhs.trim();
+        let rhs = rhs.trim();
+        
+        // Try lhs as register, rhs as constant/expression
+        if let Some(reg_idx) = reg_index(lhs) {
+            let offset = resolve_expr(rhs, symbols);
+            return Some((reg_idx, offset));
+        }
+        
+        // Try rhs as register, lhs as constant/expression  
+        if let Some(reg_idx) = reg_index(rhs) {
+            let offset = resolve_expr(lhs, symbols);
+            return Some((reg_idx, offset));
+        }
+    }
+    
+    if let Some((lhs, rhs)) = s.split_once('-') {
+        let lhs = lhs.trim();
+        let rhs = rhs.trim();
+        
+        // Only support register - constant (not constant - register)
+        if let Some(reg_idx) = reg_index(lhs) {
+            let offset = resolve_expr(rhs, symbols);
+            // Use wrapping_sub to handle negative offsets properly
+            return Some((reg_idx, (-(offset as i32)) as u16));
+        }
+    }
+    
+    None
+}
+
+fn resolve_operand(s: &str, symbols: &HashMap<String, u16>) -> (u16, u16, bool) {
+    // Check if it's a plain number
     if let Ok(n) = s.parse::<u16>() {
-        return (n, true);
+        return (n, 0, true); // (value, offset, is_immediate)
     }
+    
+    // Check if it's a plain register
     if let Some(reg) = reg_index(s) {
-        return (reg, false);
+        return (reg, 0, false); // (reg_index, offset, is_immediate)
     }
+    
+    // Check if it's a register+constant expression
+    if let Some((reg_idx, offset)) = resolve_reg_expr(s, symbols) {
+        return (reg_idx, offset, false); // Register with offset
+    }
+    
+    // Check if it's a pure constant/label expression
     if symbols.contains_key(s) || s.contains('+') || s.contains('-') {
-        return (resolve_expr(s, symbols), true);
+        let val = resolve_expr(s, symbols);
+        return (val, 0, true); // (value, offset, is_immediate)
     }
+    
     panic!("Invalid operand '{}'", s);
 }
 
@@ -128,26 +174,34 @@ pub fn assemble(source: &str) -> Vec<u16> {
         let mut b = 0;
         let mut c = 0;
         let mut f = 0;
+        let mut a_offset = 0;
+        let mut b_offset = 0;
+        let mut c_offset = 0;
 
         match name {
             "mov" => {
                 assert_eq!(args.len(), 2, "'mov' needs 2 args at line {}", lineno);
-                let (av, ai) = resolve_operand(&args[0], &labels);
-                let (bv, _) = resolve_operand(&args[1], &labels);
+                let (av, ao, ai) = resolve_operand(&args[0], &labels);
+                let (bv, bo, _) = resolve_operand(&args[1], &labels);
                 a = av;
                 b = bv;
+                a_offset = ao;
+                b_offset = bo;
                 if ai {
                     f |= 1;
                 }
             }
             "add" | "sub" | "and" | "or" | "xor" | "shl" | "shr" => {
                 assert_eq!(args.len(), 3, "'{}' needs 3 args at line {}", name, lineno);
-                let (av, ai) = resolve_operand(&args[0], &labels);
-                let (bv, bi) = resolve_operand(&args[1], &labels);
-                let (cv, _) = resolve_operand(&args[2], &labels);
+                let (av, ao, ai) = resolve_operand(&args[0], &labels);
+                let (bv, bo, bi) = resolve_operand(&args[1], &labels);
+                let (cv, co, _) = resolve_operand(&args[2], &labels);
                 a = av;
                 b = bv;
                 c = cv;
+                a_offset = ao;
+                b_offset = bo;
+                c_offset = co;
                 if ai {
                     f |= 1;
                 }
@@ -157,10 +211,12 @@ pub fn assemble(source: &str) -> Vec<u16> {
             }
             "mul" => {
                 assert_eq!(args.len(), 2, "'mul' needs 2 args at line {}", lineno);
-                let (av, ai) = resolve_operand(&args[0], &labels);
-                let (bv, bi) = resolve_operand(&args[1], &labels);
+                let (av, ao, ai) = resolve_operand(&args[0], &labels);
+                let (bv, bo, bi) = resolve_operand(&args[1], &labels);
                 a = av;
                 b = bv;
+                a_offset = ao;
+                b_offset = bo;
                 if ai {
                     f |= 1;
                 }
@@ -170,30 +226,36 @@ pub fn assemble(source: &str) -> Vec<u16> {
             }
             "not" => {
                 assert_eq!(args.len(), 2, "'not' needs 2 args at line {}", lineno);
-                let (av, ai) = resolve_operand(&args[0], &labels);
-                let (cv, _) = resolve_operand(&args[1], &labels);
+                let (av, ao, ai) = resolve_operand(&args[0], &labels);
+                let (cv, co, _) = resolve_operand(&args[1], &labels);
                 a = av;
                 c = cv;
+                a_offset = ao;
+                c_offset = co;
                 if ai {
                     f |= 1;
                 }
             }
             "jmp" => {
                 assert_eq!(args.len(), 1, "'jmp' needs 1 arg at line {}", lineno);
-                let (cv, ci) = resolve_operand(&args[0], &labels);
+                let (cv, co, ci) = resolve_operand(&args[0], &labels);
                 c = cv;
+                c_offset = co;
                 if ci {
                     f |= 4;
                 }
             }
             "jml" | "jmle" | "jmb" | "jmbe" | "jme" | "jmne" => {
                 assert_eq!(args.len(), 3, "'{}' needs 3 args at line {}", name, lineno);
-                let (av, ai) = resolve_operand(&args[0], &labels);
-                let (bv, bi) = resolve_operand(&args[1], &labels);
-                let (cv, ci) = resolve_operand(&args[2], &labels);
+                let (av, ao, ai) = resolve_operand(&args[0], &labels);
+                let (bv, bo, bi) = resolve_operand(&args[1], &labels);
+                let (cv, co, ci) = resolve_operand(&args[2], &labels);
                 a = av;
                 b = bv;
                 c = cv;
+                a_offset = ao;
+                b_offset = bo;
+                c_offset = co;
                 if ai {
                     f |= 1;
                 }
@@ -206,24 +268,27 @@ pub fn assemble(source: &str) -> Vec<u16> {
             }
             "save" | "push" => {
                 assert_eq!(args.len(), 1, "'{}' needs 1 arg at line {}", name, lineno);
-                let (av, ai) = resolve_operand(&args[0], &labels);
+                let (av, ao, ai) = resolve_operand(&args[0], &labels);
                 a = av;
+                a_offset = ao;
                 if ai {
                     f |= 1;
                 }
             }
             "load" => {
                 assert_eq!(args.len(), 1, "'load' needs 1 arg at line {}", lineno);
-                let (cv, ci) = resolve_operand(&args[0], &labels);
+                let (cv, co, ci) = resolve_operand(&args[0], &labels);
                 c = cv;
+                c_offset = co;
                 if ci {
                     f |= 4;
                 }
             }
             "pop" => {
                 assert_eq!(args.len(), 1, "'pop' needs 1 arg at line {}", lineno);
-                let (av, _) = resolve_operand(&args[0], &labels);
+                let (av, ao, _) = resolve_operand(&args[0], &labels);
                 a = av;
+                a_offset = ao;
             }
             "halt" => {
                 // Handled at the end
@@ -233,7 +298,12 @@ pub fn assemble(source: &str) -> Vec<u16> {
         }
 
         let instr = (f << 13) | opcode;
-        result.extend_from_slice(&[instr, a, b, c]);
+        // Encode offsets into high bits of operands (you may need to adjust this based on your instruction format)
+        let a_encoded = a | ((a_offset & 0xF) << 12);
+        let b_encoded = b | ((b_offset & 0xF) << 12);
+        let c_encoded = c | ((c_offset & 0xF) << 12);
+        
+        result.extend_from_slice(&[instr, a_encoded, b_encoded, c_encoded]);
     }
 
     // Final halt

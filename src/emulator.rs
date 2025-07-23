@@ -94,7 +94,7 @@ impl Default for Emulator {
 }
 
 impl Emulator {
-    fn new() -> Self {
+    pub fn new() -> Self {
         let mut emu = Emulator::default();
         emu.reset();
         emu
@@ -145,11 +145,33 @@ impl Emulator {
         }
     }
 
+    // Enhanced r_i function that handles register+offset expressions
     pub fn r_i(&self, f: u16, param: u16, bit: u16) -> u16 {
         if (f >> bit) & 1 != 0 {
-            param
+            // Immediate value - extract offset from high bits if needed
+            let offset = (param >> 12) & 0xF;
+            let value = param & 0xFFF;
+            if offset != 0 {
+                value.wrapping_add(offset)
+            } else {
+                value
+            }
         } else {
-            self.read_reg(param)
+            // Register value - extract register index and offset
+            let reg_idx = param & 0xFFF;
+            let offset = (param >> 12) & 0xF;
+            let reg_val = self.read_reg(reg_idx);
+            
+            if offset != 0 {
+                // Handle negative offsets (offset > 8 means it was originally negative)
+                if offset > 8 {
+                    reg_val.wrapping_sub(16 - offset)
+                } else {
+                    reg_val.wrapping_add(offset)
+                }
+            } else {
+                reg_val
+            }
         }
     }
 
@@ -171,27 +193,33 @@ impl Emulator {
 
         let va = self.r_i(f, a, 0);
         let vb = self.r_i(f, b, 1);
+        let vc = self.r_i(f, c, 2);
         let op = Opcode::from(opcode);
 
         match op {
-            Opcode::Mov => self.write_reg(b, va),
+            Opcode::Mov => {
+                let target_reg = b & 0xFFF; // Extract register index, ignore offset for destination
+                self.write_reg(target_reg, va);
+            }
             Opcode::Add => {
+                let target_reg = c & 0xFFF;
                 let res = va as u32 + vb as u32;
                 let max = if self.is_signed { 32767 } else { 65535 };
                 if res > max {
-                    self.write_reg(c, 0);
+                    self.write_reg(target_reg, 0);
                     self.write_reg(REG_O as u16, self.regs[REG_O] | 2); // Set carry flag
                 } else {
-                    self.write_reg(c, res as u16);
+                    self.write_reg(target_reg, res as u16);
                     self.write_reg(REG_O as u16, self.regs[REG_O] & !2); // Clear carry flag
                 }
             }
             Opcode::Sub => {
+                let target_reg = c & 0xFFF;
                 let res = va as i32 - vb as i32;
                 if res < 0 {
-                    self.write_reg(c, 0);
+                    self.write_reg(target_reg, 0);
                 } else {
-                    self.write_reg(c, res as u16);
+                    self.write_reg(target_reg, res as u16);
                 }
             }
             Opcode::Mul => {
@@ -204,39 +232,51 @@ impl Emulator {
                     self.write_reg(REG_D as u16, res as u16);
                 }
             }
-            Opcode::And => self.write_reg(c, va & vb),
-            Opcode::Or => self.write_reg(c, va | vb),
-            Opcode::Xor => self.write_reg(c, va ^ vb),
-            Opcode::Not => self.write_reg(b, !va),
-            Opcode::Jmp => self.write_reg(REG_IP as u16, c),
+            Opcode::And => {
+                let target_reg = c & 0xFFF;
+                self.write_reg(target_reg, va & vb);
+            }
+            Opcode::Or => {
+                let target_reg = c & 0xFFF;
+                self.write_reg(target_reg, va | vb);
+            }
+            Opcode::Xor => {
+                let target_reg = c & 0xFFF;
+                self.write_reg(target_reg, va ^ vb);
+            }
+            Opcode::Not => {
+                let target_reg = b & 0xFFF;
+                self.write_reg(target_reg, !va);
+            }
+            Opcode::Jmp => self.write_reg(REG_IP as u16, vc),
             Opcode::Jml => {
                 if va < vb {
-                    self.write_reg(REG_IP as u16, c)
+                    self.write_reg(REG_IP as u16, vc)
                 }
             }
             Opcode::Jmle => {
                 if va <= vb {
-                    self.write_reg(REG_IP as u16, c)
+                    self.write_reg(REG_IP as u16, vc)
                 }
             }
             Opcode::Jmb => {
                 if va > vb {
-                    self.write_reg(REG_IP as u16, c)
+                    self.write_reg(REG_IP as u16, vc)
                 }
             }
             Opcode::Jmbe => {
                 if va >= vb {
-                    self.write_reg(REG_IP as u16, c)
+                    self.write_reg(REG_IP as u16, vc)
                 }
             }
             Opcode::Jme => {
                 if va == vb {
-                    self.write_reg(REG_IP as u16, c)
+                    self.write_reg(REG_IP as u16, vc)
                 }
             }
             Opcode::Jmne => {
                 if va != vb {
-                    self.write_reg(REG_IP as u16, c)
+                    self.write_reg(REG_IP as u16, vc)
                 }
             }
             Opcode::Save => {
@@ -246,7 +286,8 @@ impl Emulator {
             Opcode::Load => {
                 let addr = self.regs[REG_MS].wrapping_add(self.regs[REG_IP]) as usize;
                 let val = self.read_mem_u16(addr);
-                self.write_reg(a, val);
+                let target_reg = a & 0xFFF;
+                self.write_reg(target_reg, val);
             }
             Opcode::Push => {
                 let addr = self.regs[REG_SS].wrapping_add(self.regs[REG_SO]) as usize;
@@ -257,11 +298,18 @@ impl Emulator {
                 self.regs[REG_SO] = self.regs[REG_SO].wrapping_sub(2);
                 let addr = self.regs[REG_SS].wrapping_add(self.regs[REG_SO]) as usize;
                 let val = self.read_mem_u16(addr);
-                self.write_reg(a, val);
+                let target_reg = a & 0xFFF;
+                self.write_reg(target_reg, val);
             }
             Opcode::Halt => return StepResult::Halt,
-            Opcode::Shl => self.write_reg(c, va << (vb & 15)),
-            Opcode::Shr => self.write_reg(c, va >> (vb & 15)),
+            Opcode::Shl => {
+                let target_reg = c & 0xFFF;
+                self.write_reg(target_reg, va << (vb & 15));
+            }
+            Opcode::Shr => {
+                let target_reg = c & 0xFFF;
+                self.write_reg(target_reg, va >> (vb & 15));
+            }
         }
 
         StepResult::Continue
@@ -311,24 +359,10 @@ impl Emulator {
 
 /*fn main() {
     let source = r#"
-        mov 25, A
-        jmp loop
-
-odd:
-        mul A, D
-        add D, 1, A
-        jmp loop
-
-even:
-        shr A, 1, A
-
-loop:
-        jme A, 1, end
-        and A, 1, B
-        jme B, 1, odd
-        jmp even
-
-end:
+        const five: 5
+        mov A+five, B  ; Move A+5 to B
+        add 10+C, D, A ; Add (10+C) and D, store in A
+        sub A-3, B, C  ; Subtract B from (A-3), store in C
         halt
     "#;
 
@@ -351,9 +385,6 @@ end:
         1_000_000.0 / elapsed.as_secs_f64()
     );
 
-    emu.print_state();
+    println!("{}", emu.get_state_string());
 }
 */
-/*fn blank() {
-    {}
-}*/
