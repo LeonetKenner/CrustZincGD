@@ -1,5 +1,4 @@
 
-use std::time::Instant;
 
 const MEM_SIZE: usize = 65536;
 const NUM_REGS: usize = 12;
