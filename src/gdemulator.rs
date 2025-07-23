@@ -46,8 +46,8 @@ impl EmulatorNode {
         }
     }
 }    #[func]
-    fn print_state(&mut self){
-        godot_print!("{}", self.emu.get_state_string());
+    fn print_state(&mut self)->String{
+        return self.emu.get_state_string();
 
     }
     #[func]
