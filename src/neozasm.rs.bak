@@ -31,7 +31,6 @@ fn resolve_expr(s: &str, symbols: &HashMap<String, u16>) -> u16 {
     if let Some((lhs, rhs)) = s.split_once('-') {
         return resolve_expr(lhs.trim(), symbols) - resolve_expr(rhs.trim(), symbols);
     }
-
     panic!("Unknown constant or label: '{}'", s);
 }
 
@@ -42,7 +41,7 @@ fn resolve_operand(s: &str, symbols: &HashMap<String, u16>) -> (u16, bool) {
     if let Some(reg) = reg_index(s) {
         return (reg, false);
     }
-    if symbols.contains_key(s) || s.contains('+') || s.contains('-') {
+    if s.contains('+') || s.contains('-') || symbols.contains_key(s) {
         return (resolve_expr(s, symbols), true);
     }
     panic!("Invalid operand '{}'", s);
@@ -50,28 +49,10 @@ fn resolve_operand(s: &str, symbols: &HashMap<String, u16>) -> (u16, bool) {
 
 pub fn assemble(source: &str) -> Vec<u16> {
     let opcodes: HashMap<&str, u16> = HashMap::from([
-        ("mov", 1),
-        ("add", 2),
-        ("sub", 3),
-        ("mul", 4),
-        ("and", 5),
-        ("or", 6),
-        ("xor", 7),
-        ("not", 8),
-        ("jmp", 9),
-        ("jml", 10),
-        ("jmle", 11),
-        ("jmb", 12),
-        ("jmbe", 13),
-        ("jme", 14),
-        ("jmne", 15),
-        ("save", 16),
-        ("load", 17),
-        ("push", 18),
-        ("pop", 19),
-        ("halt", 20),
-        ("shl", 21),
-        ("shr", 22),
+        ("mov", 1), ("add", 2), ("sub", 3), ("mul", 4), ("and", 5), ("or", 6),
+        ("xor", 7), ("not", 8), ("jmp", 9), ("jml", 10), ("jmle", 11),
+        ("jmb", 12), ("jmbe", 13), ("jme", 14), ("jmne", 15), ("save", 16),
+        ("load", 17), ("push", 18), ("pop", 19), ("halt", 20), ("shl", 21), ("shr", 22),
     ]);
 
     let mut consts = HashMap::new();
@@ -100,8 +81,14 @@ pub fn assemble(source: &str) -> Vec<u16> {
         }
     }
 
-    // Merge constants into label map for lookup
+    // Merge constants and registers into labels for expression resolution
     labels.extend(consts.iter().map(|(k, &v)| (k.clone(), v)));
+    for (name, idx) in [
+        ("A", 0), ("B", 1), ("C", 2), ("D", 3), ("IP", 4), ("SS", 5),
+        ("SO", 6), ("MS", 7), ("MO", 8), ("I", 9), ("O", 10), ("ST", 11),
+    ] {
+        labels.insert(name.to_string(), idx);
+    }
 
     let mut result = vec![];
 
@@ -136,9 +123,7 @@ pub fn assemble(source: &str) -> Vec<u16> {
                 let (bv, _) = resolve_operand(&args[1], &labels);
                 a = av;
                 b = bv;
-                if ai {
-                    f |= 1;
-                }
+                if ai { f |= 1; }
             }
             "add" | "sub" | "and" | "or" | "xor" | "shl" | "shr" => {
                 assert_eq!(args.len(), 3, "'{}' needs 3 args at line {}", name, lineno);
@@ -148,12 +133,8 @@ pub fn assemble(source: &str) -> Vec<u16> {
                 a = av;
                 b = bv;
                 c = cv;
-                if ai {
-                    f |= 1;
-                }
-                if bi {
-                    f |= 2;
-                }
+                if ai { f |= 1; }
+                if bi { f |= 2; }
             }
             "mul" => {
                 assert_eq!(args.len(), 2, "'mul' needs 2 args at line {}", lineno);
@@ -161,12 +142,8 @@ pub fn assemble(source: &str) -> Vec<u16> {
                 let (bv, bi) = resolve_operand(&args[1], &labels);
                 a = av;
                 b = bv;
-                if ai {
-                    f |= 1;
-                }
-                if bi {
-                    f |= 2;
-                }
+                if ai { f |= 1; }
+                if bi { f |= 2; }
             }
             "not" => {
                 assert_eq!(args.len(), 2, "'not' needs 2 args at line {}", lineno);
@@ -174,17 +151,13 @@ pub fn assemble(source: &str) -> Vec<u16> {
                 let (cv, _) = resolve_operand(&args[1], &labels);
                 a = av;
                 c = cv;
-                if ai {
-                    f |= 1;
-                }
+                if ai { f |= 1; }
             }
             "jmp" => {
                 assert_eq!(args.len(), 1, "'jmp' needs 1 arg at line {}", lineno);
                 let (cv, ci) = resolve_operand(&args[0], &labels);
                 c = cv;
-                if ci {
-                    f |= 4;
-                }
+                if ci { f |= 4; }
             }
             "jml" | "jmle" | "jmb" | "jmbe" | "jme" | "jmne" => {
                 assert_eq!(args.len(), 3, "'{}' needs 3 args at line {}", name, lineno);
@@ -194,41 +167,28 @@ pub fn assemble(source: &str) -> Vec<u16> {
                 a = av;
                 b = bv;
                 c = cv;
-                if ai {
-                    f |= 1;
-                }
-                if bi {
-                    f |= 2;
-                }
-                if ci {
-                    f |= 4;
-                }
+                if ai { f |= 1; }
+                if bi { f |= 2; }
+                if ci { f |= 4; }
             }
             "save" | "push" => {
                 assert_eq!(args.len(), 1, "'{}' needs 1 arg at line {}", name, lineno);
                 let (av, ai) = resolve_operand(&args[0], &labels);
                 a = av;
-                if ai {
-                    f |= 1;
-                }
+                if ai { f |= 1; }
             }
             "load" => {
                 assert_eq!(args.len(), 1, "'load' needs 1 arg at line {}", lineno);
                 let (cv, ci) = resolve_operand(&args[0], &labels);
                 c = cv;
-                if ci {
-                    f |= 4;
-                }
+                if ci { f |= 4; }
             }
             "pop" => {
                 assert_eq!(args.len(), 1, "'pop' needs 1 arg at line {}", lineno);
                 let (av, _) = resolve_operand(&args[0], &labels);
                 a = av;
             }
-            "halt" => {
-                // Handled at the end
-                continue;
-            }
+            "halt" => continue, // handled at end
             _ => panic!("Unimplemented instruction '{}' on line {}", name, lineno),
         }
 
@@ -236,7 +196,7 @@ pub fn assemble(source: &str) -> Vec<u16> {
         result.extend_from_slice(&[instr, a, b, c]);
     }
 
-    // Final halt
+    // Append halt at end
     let halt = (0 << 13) | (opcodes["halt"] - 1);
     result.extend_from_slice(&[halt, 0, 0, 0]);
 

@@ -309,7 +309,7 @@ impl Emulator {
     }
 }
 
-/**fn main() {
+/*fn main() {
     let source = r#"
         mov 25, A
         jmp loop
@@ -353,7 +353,7 @@ end:
 
     emu.print_state();
 }
-**/
-fn blank() {
+*/
+/*fn blank() {
     {}
-}
+}*/
