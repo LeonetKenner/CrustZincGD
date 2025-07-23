@@ -180,15 +180,34 @@ impl Emulator {
             Opcode::Add => {
                 let res = va as u32 + vb as u32;
                 let max = if self.is_signed { 32767 } else { 65535 };
-                let carry = if res > max { 2 } else { 0 };
-                self.write_reg(REG_O as u16, (self.regs[REG_O] & !2) | carry);
-                self.write_reg(c, res as u16);
+                if res > max {
+                    self.write_reg(c, 0);
+                    self.write_reg(REG_O as u16, self.regs[REG_O] | 2); // Set carry flag
+                } else {
+                        self.write_reg(c, res as u16);
+                    self.write_reg(REG_O as u16, self.regs[REG_O] & !2); // Clear carry flag
+                }
+
             }
-            Opcode::Sub => self.write_reg(c, va.wrapping_sub(vb)),
+            Opcode::Sub => {
+                let res = va as i32 - vb as i32;
+if res < 0 {
+    self.write_reg(c, 0);
+} else {
+    self.write_reg(c, res as u16);
+}
+
+},
             Opcode::Mul => {
-                let res = (va as u32) * (vb as u32);
-                self.write_reg(REG_C as u16, (res >> 16) as u16);
-                self.write_reg(REG_D as u16, (res & 0xFFFF) as u16);
+               let res = (va as u32) * (vb as u32);
+if res > 0xFFFF {
+    self.write_reg(REG_C as u16, 0);
+    self.write_reg(REG_D as u16, 0);
+} else {
+    self.write_reg(REG_C as u16, 0);
+    self.write_reg(REG_D as u16, res as u16);
+}
+
             }
             Opcode::And => self.write_reg(c, va & vb),
             Opcode::Or => self.write_reg(c, va | vb),
