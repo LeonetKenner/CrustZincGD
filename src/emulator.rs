@@ -1,3 +1,52 @@
+/*
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                         🧠 ZINC Emulator (Rust)                          ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+╔═══ Architecture Overview ═══════════════════════════════════════════════════╗
+║ - 12 Registers:
+║   - A, B, C, D      → General purpose
+║   - IP              → Instruction pointer (in instruction units, not bytes)
+║   - SS, SO          → Stack segment + stack offset
+║   - MS, MO          → Memory segment + offset
+║   - I, O, ST        → Misc / flag registers
+║
+║ - 64 KiB Memory: `ram: [u8; 65536]`
+║   - Every instruction is 8 bytes: 2 bytes for opcode header, then 3×2-byte args
+║
+║ - `step()` runs one instruction. `load_program()` loads packed u16 code into memory.
+║
+║ - `r_i()` resolves arguments:
+║   - If `f >> bit` is set, the parameter is treated as an immediate value + offset
+║   - Otherwise, it's treated as a register index + optional offset (upper 4 bits)
+║   - Offsets can be negative (values > 8 subtract from base reg)
+║
+║ - Operand encoding:
+║   - Low 12 bits = reg or value
+║   - High 4 bits = offset (+0 to +7, or -8 to -1)
+║
+║ - Opcode enum: 22 instructions (mov, add, sub, jmp, push, pop, etc.)
+║ - Overflow behavior:
+║   - `Add` uses `u32` with overflow detection
+║   - `Sub` uses `wrapping_sub` and wraps underflow (e.g., 0 - 1 = 65535)
+║   - `Mul` returns low 16 bits into D, sets C to 0
+║   - Overflow flag set in REG_O bit 1 (mask `0b10`)
+║
+║ - No runtime panic in VM logic (everything uses wrapping ops)
+║ - `get_state_string()` shows register states
+║ - `Opcode::from()` handles unknown opcodes by halting
+║
+║ You can extend this by modifying:
+║   - `Opcode` enum
+║   - `step()` match arms
+║   - `assemble()` logic (in assembler module)
+║
+║ Designed for usage with ZASM.
+╚════════════════════════════════════════════════════════════════════════════╝
+
+*/
+
 const MEM_SIZE: usize = 65536;
 const NUM_REGS: usize = 12;
 
@@ -72,7 +121,7 @@ impl From<u16> for Opcode {
             19 => Opcode::Halt,
             20 => Opcode::Shl,
             21 => Opcode::Shr,
-            _ => Opcode::Halt, // Treat unknown as halt
+            _ => Opcode::Halt,
         }
     }
 }
@@ -145,32 +194,19 @@ impl Emulator {
         }
     }
 
-    // Enhanced r_i function that handles register+offset expressions
     pub fn r_i(&self, f: u16, param: u16, bit: u16) -> u16 {
         if (f >> bit) & 1 != 0 {
-            // Immediate value - extract offset from high bits if needed
             let offset = (param >> 12) & 0xF;
-            let value = param & 0xFFF;
-            if offset != 0 {
-                value.wrapping_add(offset)
-            } else {
-                value
-            }
+            let value = param & 0x0FFF;
+            value.wrapping_add(offset)
         } else {
-            // Register value - extract register index and offset
-            let reg_idx = param & 0xFFF;
+            let reg_idx = param & 0x0FFF;
             let offset = (param >> 12) & 0xF;
             let reg_val = self.read_reg(reg_idx);
-
-            if offset != 0 {
-                // Handle negative offsets (offset > 8 means it was originally negative)
-                if offset > 8 {
-                    reg_val.wrapping_sub(16 - offset)
-                } else {
-                    reg_val.wrapping_add(offset)
-                }
+            if offset > 8 {
+                reg_val.wrapping_sub(16 - offset)
             } else {
-                reg_val
+                reg_val.wrapping_add(offset)
             }
         }
     }
@@ -198,7 +234,7 @@ impl Emulator {
 
         match op {
             Opcode::Mov => {
-                let target_reg = b & 0xFFF; // Extract register index, ignore offset for destination
+                let target_reg = b & 0xFFF;
                 self.write_reg(target_reg, va);
             }
             Opcode::Add => {
@@ -207,20 +243,16 @@ impl Emulator {
                 let max = if self.is_signed { 32767 } else { 65535 };
                 if res > max {
                     self.write_reg(target_reg, 0);
-                    self.write_reg(REG_O as u16, self.regs[REG_O] | 2); // Set carry flag
+                    self.write_reg(REG_O as u16, self.regs[REG_O] | 2);
                 } else {
                     self.write_reg(target_reg, res as u16);
-                    self.write_reg(REG_O as u16, self.regs[REG_O] & !2); // Clear carry flag
+                    self.write_reg(REG_O as u16, self.regs[REG_O] & !2);
                 }
             }
             Opcode::Sub => {
                 let target_reg = c & 0xFFF;
-                let res = va as i32 - vb as i32;
-                if res < 0 {
-                    self.write_reg(target_reg, 0);
-                } else {
-                    self.write_reg(target_reg, res as u16);
-                }
+                let res = va.wrapping_sub(vb);
+                self.write_reg(target_reg, res);
             }
             Opcode::Mul => {
                 let res = (va as u32) * (vb as u32);
@@ -317,74 +349,13 @@ impl Emulator {
 
     pub fn get_state_string(&self) -> String {
         format!(
-            "A  = {:#06X} ({})\n\
-         B  = {:#06X} ({})\n\
-         C  = {:#06X} ({})\n\
-         D  = {:#06X} ({})\n\
-         IP = {:#06X} ({})\n\
-         SS = {:#06X} ({})\n\
-         SO = {:#06X} ({})\n\
-         MS = {:#06X} ({})\n\
-         MO = {:#06X} ({})\n\
-         I  = {:#06X} ({})\n\
-         O  = {:#06X} ({})\n\
-         ST = {:#06X} ({})",
-            self.regs[REG_A],
-            self.regs[REG_A],
-            self.regs[REG_B],
-            self.regs[REG_B],
-            self.regs[REG_C],
-            self.regs[REG_C],
-            self.regs[REG_D],
-            self.regs[REG_D],
-            self.regs[REG_IP],
-            self.regs[REG_IP],
-            self.regs[REG_SS],
-            self.regs[REG_SS],
-            self.regs[REG_SO],
-            self.regs[REG_SO],
-            self.regs[REG_MS],
-            self.regs[REG_MS],
-            self.regs[REG_MO],
-            self.regs[REG_MO],
-            self.regs[REG_I],
-            self.regs[REG_I],
-            self.regs[REG_O],
-            self.regs[REG_O],
-            self.regs[REG_ST],
-            self.regs[REG_ST],
+            "A  = {:#06X} ({})\nB  = {:#06X} ({})\nC  = {:#06X} ({})\nD  = {:#06X} ({})\nIP = {:#06X} ({})\nSS = {:#06X} ({})\nSO = {:#06X} ({})\nMS = {:#06X} ({})\nMO = {:#06X} ({})\nI  = {:#06X} ({})\nO  = {:#06X} ({})\nST = {:#06X} ({})",
+            self.regs[REG_A], self.regs[REG_A], self.regs[REG_B], self.regs[REG_B],
+            self.regs[REG_C], self.regs[REG_C], self.regs[REG_D], self.regs[REG_D],
+            self.regs[REG_IP], self.regs[REG_IP], self.regs[REG_SS], self.regs[REG_SS],
+            self.regs[REG_SO], self.regs[REG_SO], self.regs[REG_MS], self.regs[REG_MS],
+            self.regs[REG_MO], self.regs[REG_MO], self.regs[REG_I], self.regs[REG_I],
+            self.regs[REG_O], self.regs[REG_O], self.regs[REG_ST], self.regs[REG_ST],
         )
     }
 }
-
-/*fn main() {
-    let source = r#"
-        const five: 5
-        mov A+five, B  ; Move A+5 to B
-        add 10+C, D, A ; Add (10+C) and D, store in A
-        sub A-3, B, C  ; Subtract B from (A-3), store in C
-        halt
-    "#;
-
-    let program = neozasm::assemble(source);
-
-    let mut emu = Emulator::new();
-    emu.load_program(&program);
-
-    let now = Instant::now();
-    for _ in 0..1_000_000 {
-        if let StepResult::Halt = emu.step() {
-            break;
-        }
-    }
-
-    let elapsed = now.elapsed();
-    println!(
-        "1M steps in {:?} ({:.2} steps/sec)",
-        elapsed,
-        1_000_000.0 / elapsed.as_secs_f64()
-    );
-
-    println!("{}", emu.get_state_string());
-}
-*/
