@@ -2,19 +2,59 @@ name: Rust
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
   build:
-
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
-    - name: Build
-      run: cargo build --verbose
+      - uses: actions/checkout@v4
+
+      - name: Install Rust targets
+        run: |
+          rustup update
+          rustup target add wasm32-unknown-emscripten
+          rustup target add x86_64-pc-windows-gnu
+
+      - name: Install dependencies for Emscripten and Windows
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y emscripten mingw-w64
+
+      - name: Set up Rust nightly for WASM
+        run: |
+          rustup install nightly
+          rustup component add rust-src --toolchain nightly
+
+      - name: Build for Linux (default)
+        run: cargo build --release
+
+      - name: Build for Windows
+        run: cargo build --release --target x86_64-pc-windows-gnu
+
+      - name: Build for WASM (Emscripten)
+        run: cargo +nightly build --release -Z build-std --target wasm32-unknown-emscripten
+
+      - name: Upload Linux Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-artifact
+          path: target/release/
+
+      - name: Upload Windows Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-artifact
+          path: target/x86_64-pc-windows-gnu/release/
+
+      - name: Upload WASM Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wasm-artifact
+          path: target/wasm32-unknown-emscripten/release/
