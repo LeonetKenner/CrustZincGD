@@ -4,8 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-godot = "0.3.4"
-
+godot = { version = "0.3.4", features = ["experimental-wasm", "lazy-function-tables"] }
 
 [lib]
 crate-type = ["cdylib"]
