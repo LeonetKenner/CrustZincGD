@@ -258,20 +258,46 @@ pub fn assemble(source: &str) -> Vec<u16> {
                     f |= 4;
                 }
             }
-            "save" | "push" => {
+            "save" => {
+                // MODIFIED: save now takes 2 parameters
+                // save(dest_addr_ptr, src_value)
+                // a = src_value (what to store)
+                // b = dest_addr_ptr (where to store it)
+                assert_eq!(args.len(), 2);
+                let (av, ai) = resolve_operand(&args[0], &labels);  // dest_addr_ptr
+                let (bv, bi) = resolve_operand(&args[1], &labels);  // src_value
+                a = bv;  // store src_value in 'a' register slot
+                b = av;  // store dest_addr_ptr in 'b' register slot
+                if bi {
+                    f |= 1;  // flag for 'a' parameter (src_value)
+                }
+                if ai {
+                    f |= 2;  // flag for 'b' parameter (dest_addr_ptr)
+                }
+            }
+            "load" => {
+                // MODIFIED: load now takes 2 parameters
+                // load(dest_reg, src_addr_ptr)
+                // b = src_addr_ptr (where to read from)
+                // c = dest_reg (target register)
+                assert_eq!(args.len(), 2);
+                let (bv, bi) = resolve_operand(&args[0], &labels);  // dest_reg
+                let (cv, ci) = resolve_operand(&args[1], &labels);  // src_addr_ptr
+                b = bv;  // store dest_reg in 'b' register slot
+                c = cv;  // store src_addr_ptr in 'c' register slot
+                if bi {
+                    f |= 2;  // flag for 'b' parameter (dest_reg)
+                }
+                if ci {
+                    f |= 4;  // flag for 'c' parameter (src_addr_ptr)
+                }
+            }
+            "push" => {
                 assert_eq!(args.len(), 1);
                 let (av, ai) = resolve_operand(&args[0], &labels);
                 a = av;
                 if ai {
                     f |= 1;
-                }
-            }
-            "load" => {
-                assert_eq!(args.len(), 1);
-                let (cv, ci) = resolve_operand(&args[0], &labels);
-                c = cv;
-                if ci {
-                    f |= 4;
                 }
             }
             "pop" => {

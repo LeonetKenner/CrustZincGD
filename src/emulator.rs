@@ -1,51 +1,4 @@
-/*
 
-╔══════════════════════════════════════════════════════════════════════════════╗
-║                         🧠 ZINC Emulator (Rust)                          ║
-╚══════════════════════════════════════════════════════════════════════════════╝
-
-╔═══ Architecture Overview ═══════════════════════════════════════════════════╗
-║ - 12 Registers:
-║   - A, B, C, D      → General purpose
-║   - IP              → Instruction pointer (in instruction units, not bytes)
-║   - SS, SO          → Stack segment + stack offset
-║   - MS, MO          → Memory segment + offset
-║   - I, O, ST        → Misc / flag registers
-║
-║ - 64 KiB Memory: `ram: [u8; 65536]`
-║   - Every instruction is 8 bytes: 2 bytes for opcode header, then 3×2-byte args
-║
-║ - `step()` runs one instruction. `load_program()` loads packed u16 code into memory.
-║
-║ - `r_i()` resolves arguments:
-║   - If `f >> bit` is set, the parameter is treated as an immediate value + offset
-║   - Otherwise, it's treated as a register index + optional offset (upper 4 bits)
-║   - Offsets can be negative (values > 8 subtract from base reg)
-║
-║ - Operand encoding:
-║   - Low 12 bits = reg or value
-║   - High 4 bits = offset (+0 to +7, or -8 to -1)
-║
-║ - Opcode enum: 22 instructions (mov, add, sub, jmp, push, pop, etc.)
-║ - Overflow behavior:
-║   - `Add` uses `u32` with overflow detection
-║   - `Sub` uses `wrapping_sub` and wraps underflow (e.g., 0 - 1 = 65535)
-║   - `Mul` returns low 16 bits into D, sets C to 0
-║   - Overflow flag set in REG_O bit 1 (mask `0b10`)
-║
-║ - No runtime panic in VM logic (everything uses wrapping ops)
-║ - `get_state_string()` shows register states
-║ - `Opcode::from()` handles unknown opcodes by halting
-║
-║ You can extend this by modifying:
-║   - `Opcode` enum
-║   - `step()` match arms
-║   - `assemble()` logic (in assembler module)
-║
-║ Designed for usage with ZASM.
-╚════════════════════════════════════════════════════════════════════════════╝
-
-*/
 
 const MEM_SIZE: usize = 65536;
 const NUM_REGS: usize = 12;
@@ -312,13 +265,21 @@ impl Emulator {
                 }
             }
             Opcode::Save => {
-                let addr = self.regs[REG_MS].wrapping_add(self.regs[REG_IP]) as usize;
-                self.write_mem_u16(addr, va);
+                // MODIFIED: save(dest_addr_ptr, src_value)
+                // va = src_value (what to store)
+                // vb = dest_addr_ptr (where to store it)
+                // Semantics: write va into memory at address vb
+                let dest_addr = vb as usize;
+                self.write_mem_u16(dest_addr, va);
             }
             Opcode::Load => {
-                let addr = self.regs[REG_MS].wrapping_add(self.regs[REG_IP]) as usize;
-                let val = self.read_mem_u16(addr);
-                let target_reg = a & 0xFFF;
+                // MODIFIED: load(dest_reg, src_addr_ptr)
+                // vb = src_addr_ptr (where to read from)
+                // c = dest_reg (target register index)
+                // Semantics: read from memory at address vb, store in register c
+                let src_addr = vb as usize;
+                let val = self.read_mem_u16(src_addr);
+                let target_reg = c & 0xFFF;
                 self.write_reg(target_reg, val);
             }
             Opcode::Push => {
