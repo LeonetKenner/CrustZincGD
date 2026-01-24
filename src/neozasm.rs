@@ -36,11 +36,22 @@ fn get_opcode_val(op: &str) -> Option<u16> {
 
 fn get_param_mapping(op: &str) -> Option<&'static [usize]> {
     match op.to_lowercase().as_str() {
+        
         "mov" | "mul" | "save" | "load" => Some(&[0, 1]),
-        "not" | "jmp" => Some(&[0, 2]),
+        
+        "add" | "sub" | "and" | "or" | "xor" | "shl" | "shr" | "dsave" |
+        "jml" | "jmle" | "jmb" | "jmbe" | "jme" | "jmne" => Some(&[0, 1, 2]),
+        
+        // fix not and jump
+        "not" => Some(&[0, 2]),
+        "jmp" => Some(&[2]),
+        
+        
         "push" | "pop" | "int" => Some(&[0]),
+        
         "halt" => Some(&[]),
-        _ => Some(&[0, 1, 2]),
+        
+        _ => None,
     }
 }
 
