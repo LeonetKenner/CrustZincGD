@@ -1,320 +1,219 @@
 use std::collections::HashMap;
 
-fn reg_index(s: &str) -> Option<u16> {
-    match s {
-        "A" => Some(0),
-        "B" => Some(1),
-        "C" => Some(2),
-        "D" => Some(3),
-        "IP" => Some(4),
-        "SS" => Some(5),
-        "SO" => Some(6),
-        "MS" => Some(7),
-        "MO" => Some(8),
-        "I" => Some(9),
-        "O" => Some(10),
-        "ST" => Some(11),
+const REG_NAMES: &[&str] = &[
+    "A", "B", "C", "D", "IP", "SS", "SO", "MS", "MO", "I", "O", "ST"
+];
+
+fn get_opcode_val(op: &str) -> Option<u16> {
+    match op.to_lowercase().as_str() {
+        "mov" => Some(0),
+        "add" => Some(1),
+        "sub" => Some(2),
+        "mul" => Some(3),
+        "and" => Some(4),
+        "or" => Some(5),
+        "xor" => Some(6),
+        "not" => Some(7),
+        "jmp" => Some(8),
+        "jml" => Some(9),
+        "jmle" => Some(10),
+        "jmb" => Some(11),
+        "jmbe" => Some(12),
+        "jme" => Some(13),
+        "jmne" => Some(14),
+        "save" => Some(15),
+        "load" => Some(16),
+        "push" => Some(17),
+        "pop" => Some(18),
+        "halt" => Some(19),
+        "shl" => Some(20),
+        "shr" => Some(21),
+        "int" => Some(22),
+        "dsave" => Some(23),
         _ => None,
     }
 }
 
-fn resolve_expr(s: &str, symbols: &HashMap<String, u16>) -> u16 {
-    let s = s.trim();
-
-    if let Ok(n) = s.parse::<u16>() {
-        return n;
+fn get_param_mapping(op: &str) -> Option<&'static [usize]> {
+    match op.to_lowercase().as_str() {
+        "mov" | "mul" | "save" | "load" => Some(&[0, 1]),
+        "not" | "jmp" => Some(&[0, 2]),
+        "push" | "pop" | "int" => Some(&[0]),
+        "halt" => Some(&[]),
+        _ => Some(&[0, 1, 2]),
     }
-
-    if let Some(&val) = symbols.get(s) {
-        return val;
-    }
-
-    if let Some((lhs, rhs)) = s.split_once('+') {
-        return resolve_expr(lhs.trim(), symbols) + resolve_expr(rhs.trim(), symbols);
-    }
-
-    if let Some((lhs, rhs)) = s.split_once('-') {
-        return resolve_expr(lhs.trim(), symbols).wrapping_sub(resolve_expr(rhs.trim(), symbols));
-    }
-
-    if let Some(reg) = reg_index(s) {
-        return reg;
-    }
-
-    panic!("Invalid operand '{}'", s);
 }
 
-fn resolve_operand(s: &str, symbols: &HashMap<String, u16>) -> (u16, bool) {
-    let s = s.trim();
-
-    if let Ok(n) = s.parse::<u16>() {
-        return (n, true);
-    }
-
-    if let Some((lhs, rhs)) = s.split_once('+') {
-        let lhs_trim = lhs.trim();
-        let rhs_trim = rhs.trim();
-
-        if let Some(reg) = reg_index(lhs_trim) {
-            let offset = resolve_expr(rhs_trim, symbols);
-            if offset > 15 {
-                panic!("Offset too large (max 15): {}", offset);
-            }
-            return ((offset << 12) | reg, false);
-        } else if let Some(reg) = reg_index(rhs_trim) {
-            let offset = resolve_expr(lhs_trim, symbols);
-            if offset > 15 {
-                panic!("Offset too large (max 15): {}", offset);
-            }
-            return ((offset << 12) | reg, false);
-        }
-    }
-
-    if let Some((lhs, rhs)) = s.split_once('-') {
-        let lhs_trim = lhs.trim();
-        let rhs_trim = rhs.trim();
-
-        if let Some(reg) = reg_index(lhs_trim) {
-            let offset = resolve_expr(rhs_trim, symbols);
-            if offset > 15 {
-                panic!("Offset too large (max 15): {}", offset);
-            }
-            let encoded = ((16 - offset) << 12) | reg;
-            return (encoded, false);
-        } else if let Some(reg) = reg_index(rhs_trim) {
-            let offset = resolve_expr(lhs_trim, symbols);
-            if offset > 15 {
-                panic!("Offset too large (max 15): {}", offset);
-            }
-            let encoded = ((16 - offset) << 12) | reg;
-            return (encoded, false);
-        }
-    }
-
-    if let Some(reg) = reg_index(s) {
-        return (reg, false);
-    }
-
-    if symbols.contains_key(s) || s.contains('+') || s.contains('-') {
-        return (resolve_expr(s, symbols), true);
-    }
-
-    panic!("Invalid operand '{}'", s);
+#[derive(Debug)]
+enum Arg {
+    Register(u16),
+    Number(u16),
+    Label(String),
 }
 
-pub fn assemble(source: &str) -> Vec<u16> {
-    let opcodes = HashMap::from([
-        ("mov", 1),
-        ("add", 2),
-        ("sub", 3),
-        ("mul", 4),
-        ("and", 5),
-        ("or", 6),
-        ("xor", 7),
-        ("not", 8),
-        ("jmp", 9),
-        ("jml", 10),
-        ("jmle", 11),
-        ("jmb", 12),
-        ("jmbe", 13),
-        ("jme", 14),
-        ("jmne", 15),
-        ("save", 16),
-        ("load", 17),
-        ("push", 18),
-        ("pop", 19),
-        ("halt", 20),
-        ("shl", 21),
-        ("shr", 22),
-    ]);
+struct ParsedInstruction {
+    opcode: String,
+    args: Vec<Arg>,
+}
 
-    let mut consts = HashMap::new();
-    let mut labels = HashMap::new();
-    let mut lines = vec![];
+pub struct Assembler {
+    instructions: Vec<ParsedInstruction>,
+    data_bytes: Vec<u8>,
+    static_data: HashMap<String, u16>,
+    constants: HashMap<String, u16>,
+}
 
-    for (i, line) in source.lines().enumerate() {
-        let line = line.split(';').next().unwrap_or("").trim();
-        if line.is_empty() {
-            continue;
+impl Assembler {
+    pub fn new() -> Self {
+        Self {
+            instructions: Vec::new(),
+            data_bytes: Vec::new(),
+            static_data: HashMap::new(),
+            constants: HashMap::new(),
         }
+    }
 
-        if let Some(rest) = line.strip_prefix("const ") {
-            if let Some((key, val)) = rest.split_once(':') {
-                let name = key.trim().to_string();
-                let value = resolve_expr(val.trim(), &consts);
-                consts.insert(name, value);
-                continue;
-            }
-        } else if line.ends_with(':') {
-            let label = line
-                .trim_end_matches(':')
-                .trim()
-                .strip_prefix("label ")
-                .unwrap_or_else(|| line.trim_end_matches(':').trim())
-                .to_string();
-            labels.insert(label, lines.len() as u16);
+    fn resolve_reg(&self, token: &str) -> Option<u16> {
+        REG_NAMES.iter().position(|&r| r == token.to_uppercase()).map(|i| i as u16)
+    }
+
+    fn parse_number(&self, token: &str) -> Option<u16> {
+        let clean = token.replace(',', ""); 
+        
+        let (num_str, radix) = if clean.starts_with("0x") {
+            (&clean[2..], 16)
+        } else if clean.starts_with("0b") {
+            (&clean[2..], 2)
+        } else if clean.starts_with("0o") {
+            (&clean[2..], 8)
         } else {
-            lines.push((i + 1, line.to_string()));
-        }
+            (clean.as_str(), 10)
+        };
+        u16::from_str_radix(num_str, radix).ok()
     }
 
-    labels.extend(consts.iter().map(|(k, &v)| (k.clone(), v)));
-
-    let mut result = vec![];
-
-    for (lineno, line) in lines {
-        let parts: Vec<&str> = line.split_whitespace().collect();
-        if parts.is_empty() {
-            continue;
-        }
-
-        let name = parts[0];
-        let opcode_num = *opcodes
-            .get(name)
-            .unwrap_or_else(|| panic!("Unknown instruction '{}' on line {}", name, lineno));
-        let opcode = opcode_num - 1;
-
-        let joined = parts[1..].join("");
-        let args: Vec<String> = joined
-            .split(',')
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-            .collect();
-
-        let (mut a, mut b, mut c, mut f) = (0, 0, 0, 0);
-
-        match name {
-            "mov" => {
-                assert_eq!(args.len(), 2);
-                let (av, ai) = resolve_operand(&args[0], &labels);
-                let (bv, _) = resolve_operand(&args[1], &labels);
-                a = av;
-                b = bv;
-                if ai {
-                    f |= 1;
-                }
-            }
-            "add" | "sub" | "and" | "or" | "xor" | "shl" | "shr" => {
-                assert_eq!(args.len(), 3);
-                let (av, ai) = resolve_operand(&args[0], &labels);
-                let (bv, bi) = resolve_operand(&args[1], &labels);
-                let (cv, _) = resolve_operand(&args[2], &labels);
-                a = av;
-                b = bv;
-                c = cv;
-                if ai {
-                    f |= 1;
-                }
-                if bi {
-                    f |= 2;
-                }
-            }
-            "mul" => {
-                assert_eq!(args.len(), 2);
-                let (av, ai) = resolve_operand(&args[0], &labels);
-                let (bv, bi) = resolve_operand(&args[1], &labels);
-                a = av;
-                b = bv;
-                if ai {
-                    f |= 1;
-                }
-                if bi {
-                    f |= 2;
-                }
-            }
-            "not" => {
-                assert_eq!(args.len(), 2);
-                let (av, ai) = resolve_operand(&args[0], &labels);
-                let (cv, _) = resolve_operand(&args[1], &labels);
-                a = av;
-                c = cv;
-                if ai {
-                    f |= 1;
-                }
-            }
-            "jmp" => {
-                assert_eq!(args.len(), 1);
-                let (cv, ci) = resolve_operand(&args[0], &labels);
-                c = cv;
-                if ci {
-                    f |= 4;
-                }
-            }
-            "jml" | "jmle" | "jmb" | "jmbe" | "jme" | "jmne" => {
-                assert_eq!(args.len(), 3);
-                let (av, ai) = resolve_operand(&args[0], &labels);
-                let (bv, bi) = resolve_operand(&args[1], &labels);
-                let (cv, ci) = resolve_operand(&args[2], &labels);
-                a = av;
-                b = bv;
-                c = cv;
-                if ai {
-                    f |= 1;
-                }
-                if bi {
-                    f |= 2;
-                }
-                if ci {
-                    f |= 4;
-                }
-            }
-            "save" => {
-                // MODIFIED: save now takes 2 parameters
-                // save(dest_addr_ptr, src_value)
-                // a = src_value (what to store)
-                // b = dest_addr_ptr (where to store it)
-                assert_eq!(args.len(), 2);
-                let (av, ai) = resolve_operand(&args[0], &labels);  // dest_addr_ptr
-                let (bv, bi) = resolve_operand(&args[1], &labels);  // src_value
-                a = bv;  // store src_value in 'a' register slot
-                b = av;  // store dest_addr_ptr in 'b' register slot
-                if bi {
-                    f |= 1;  // flag for 'a' parameter (src_value)
-                }
-                if ai {
-                    f |= 2;  // flag for 'b' parameter (dest_addr_ptr)
-                }
-            }
-            "load" => {
-                // MODIFIED: load now takes 2 parameters
-                // load(dest_reg, src_addr_ptr)
-                // b = src_addr_ptr (where to read from)
-                // c = dest_reg (target register)
-                assert_eq!(args.len(), 2);
-                let (bv, bi) = resolve_operand(&args[0], &labels);  // dest_reg
-                let (cv, ci) = resolve_operand(&args[1], &labels);  // src_addr_ptr
-                b = bv;  // store dest_reg in 'b' register slot
-                c = cv;  // store src_addr_ptr in 'c' register slot
-                if bi {
-                    f |= 2;  // flag for 'b' parameter (dest_reg)
-                }
-                if ci {
-                    f |= 4;  // flag for 'c' parameter (src_addr_ptr)
-                }
-            }
-            "push" => {
-                assert_eq!(args.len(), 1);
-                let (av, ai) = resolve_operand(&args[0], &labels);
-                a = av;
-                if ai {
-                    f |= 1;
-                }
-            }
-            "pop" => {
-                assert_eq!(args.len(), 1);
-                let (av, _) = resolve_operand(&args[0], &labels);
-                a = av;
-            }
-            "halt" => continue,
-            _ => panic!("Unknown instruction '{}' on line {}", name, lineno),
-        }
-
-        let header = (f << 13) | opcode;
-        result.extend_from_slice(&[header, a, b, c]);
+    fn emit_le_u16(val: u16, out: &mut Vec<u8>) {
+        out.push((val & 0xFF) as u8);
+        out.push((val >> 8) as u8);
+    }
+    
+    fn emit_le_u32(val: u32, out: &mut Vec<u8>) {
+        out.push((val & 0xFF) as u8);
+        out.push(((val >> 8) & 0xFF) as u8);
+        out.push(((val >> 16) & 0xFF) as u8);
+        out.push(((val >> 24) & 0xFF) as u8);
     }
 
-    let halt_opcode = (opcodes["halt"] - 1) & 0x1FFF;
-    result.extend_from_slice(&[halt_opcode, 0, 0, 0]);
+    pub fn assemble(&mut self, source: &str) -> Vec<u8> {
+        for line in source.lines() {
+            let clean_line = line.split(&[';', '/'][..]).next().unwrap_or("").trim().replace(',', " ");
+            let parts: Vec<&str> = clean_line.split_whitespace().collect();
 
-    result
+            if parts.is_empty() { continue; }
+
+            let command = parts[0];
+
+            if command == "label" {
+                if parts.len() < 2 { continue; }
+                let name = parts[1].replace(":", "");
+                
+                self.static_data.insert(name, self.instructions.len() as u16);
+
+            } else if command == "const" {
+                if parts.len() < 3 { continue; }
+                let name = parts[1].replace(":", "");
+                if let Some(val) = self.parse_number(parts.last().unwrap()) {
+                    self.constants.insert(name, val);
+                }
+
+            } else if ["db", "dw", "dd"].contains(&command) {
+                for token in &parts[1..] {
+                    let val = self.parse_number(token)
+                        .or_else(|| self.constants.get(*token).copied())
+                        .unwrap_or(0);
+                    
+                    match command {
+                        "db" => self.data_bytes.push(val as u8),
+                        "dw" => Self::emit_le_u16(val, &mut self.data_bytes),
+                        "dd" => Self::emit_le_u32(val as u32, &mut self.data_bytes),
+                        _ => {}
+                    }
+                }
+
+            } else if get_opcode_val(command).is_some() {
+                let mut args = Vec::new();
+                for token in &parts[1..] {
+                    if let Some(reg) = self.resolve_reg(token) {
+                        args.push(Arg::Register(reg));
+                    } else if let Some(val) = self.parse_number(token) {
+                        args.push(Arg::Number(val));
+                    } else if let Some(val) = self.constants.get(*token) {
+                        args.push(Arg::Number(*val));
+                    } else {
+                        let clean_lbl = token.replace(",", "");
+                        args.push(Arg::Label(clean_lbl));
+                    }
+                }
+                
+                self.instructions.push(ParsedInstruction {
+                    opcode: command.to_string(),
+                    args
+                });
+            }
+        }
+
+        let bss_offset = ((self.instructions.len() + 1) * 8) as u16;
+        self.static_data.insert("bss".to_string(), bss_offset);
+
+        let mut final_bytes = Vec::new();
+
+        for instr in &self.instructions {
+            let op_val = get_opcode_val(&instr.opcode).unwrap();
+            let mapping = get_param_mapping(&instr.opcode).unwrap_or(&[]);
+            
+            let mut flags = 0u16;
+            let mut params = [0u16; 3];
+
+            for (i, arg) in instr.args.iter().enumerate() {
+                if i >= mapping.len() { break; }
+                let target_slot = mapping[i]; 
+
+                match arg {
+                    Arg::Register(r) => {
+                        params[target_slot] = *r;
+                    },
+                    Arg::Number(n) => {
+                        flags |= 1 << target_slot;
+                        params[target_slot] = *n;
+                    },
+                    Arg::Label(name) => {
+                        flags |= 1 << target_slot;
+                        params[target_slot] = *self.static_data.get(name).unwrap_or(&0);
+                    }
+                }
+            }
+
+            let instr_word = (flags << 13) | op_val;
+
+            Self::emit_le_u16(instr_word, &mut final_bytes);
+            Self::emit_le_u16(params[0], &mut final_bytes);
+            Self::emit_le_u16(params[1], &mut final_bytes);
+            Self::emit_le_u16(params[2], &mut final_bytes);
+        }
+
+        let halt_op = get_opcode_val("halt").unwrap();
+        Self::emit_le_u16(halt_op, &mut final_bytes);
+        Self::emit_le_u16(0, &mut final_bytes);
+        Self::emit_le_u16(0, &mut final_bytes);
+        Self::emit_le_u16(0, &mut final_bytes);
+
+        final_bytes.extend_from_slice(&self.data_bytes);
+
+        final_bytes
+    }
+}
+
+pub fn assemble(source: &str) -> Vec<u8> {
+    let mut asm = Assembler::new();
+    asm.assemble(source)
 }
