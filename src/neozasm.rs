@@ -85,7 +85,7 @@ impl Assembler {
     }
 
     fn resolve_reg(&self, token: &str) -> Option<u16> {
-        REG_NAMES.iter().position(|&r| r == token.to_uppercase()).map(|i| i as u16)
+        REG_NAMES.iter().position(|&r| r == token).map(|i| i as u16)
     }
 
     fn parse_number(&self, token: &str) -> Option<u16> {

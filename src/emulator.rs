@@ -262,6 +262,7 @@ impl Emulator {
                     1 => return StepResult::Input,
                     2 => return StepResult::Output(2),
                     3 => return StepResult::Output(3),
+                    4 => return StepResult::Output(4),
                     _ => {}
                 }
             }

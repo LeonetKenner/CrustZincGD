@@ -35,6 +35,9 @@ impl EmulatorNode {
     fn input_requested();
     
     #[signal]
+    fn paused(); // ADDED THIS
+    
+    #[signal]
     fn halted();
 
     #[func]
@@ -66,6 +69,10 @@ impl EmulatorNode {
                         let mode = self.emu.regs()[crate::emulator::REG_A] as i32;
                         self.base_mut().emit_signal("video_mode_changed", &[mode.to_variant()]); 
                     },
+                    4 => { // ADDED THIS
+                        self.base_mut().emit_signal("paused", &[]);
+                        return 3;
+                    },
                     _ => {}
                 }
                 0 
@@ -92,6 +99,10 @@ impl EmulatorNode {
                         3 => { 
                             let mode = self.emu.regs()[crate::emulator::REG_A] as i32;
                             self.base_mut().emit_signal("video_mode_changed", &[mode.to_variant()]); 
+                        },
+                        4 => {
+                            self.base_mut().emit_signal("paused", &[]);
+                            return 3;
                         },
                         _ => {}
                     }
