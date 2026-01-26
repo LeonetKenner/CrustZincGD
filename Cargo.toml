@@ -3,8 +3,10 @@ name = "crustzincgd"
 version = "0.1.0"
 edition = "2024"
 
-[dependencies]
-godot = { version = "0.3.4", features = ["experimental-wasm", "lazy-function-tables"] }
+[dependencies.godot]
+git = "https://github.com/godot-rust/gdext"
+branch = "master"
+features = ["experimental-wasm", "lazy-function-tables", "experimental-wasm-nothreads"]
 
 [lib]
 crate-type = ["cdylib"]
