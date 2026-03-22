@@ -7,6 +7,12 @@ edition = "2024"
 git = "https://github.com/godot-rust/gdext"
 branch = "master"
 features = ["experimental-wasm", "lazy-function-tables", "experimental-wasm-nothreads"]
-
+[profile.release]
+opt-level = "z"  
+lto = true       
+codegen-units = 1
+panic = "abort"  
+strip = "symbols"
+debug = false        
 [lib]
 crate-type = ["cdylib"]
