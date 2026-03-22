@@ -8,3 +8,6 @@ rustflags = [
     "-Z", "link-native-libraries=no",
     "-Z", "emscripten-wasm-eh=false",
 ]
+[target.x86_64-pc-windows-msvc]
+linker = "/mnt/extras/windevstuff/bin/x64/link.exe"
+ar = "/mnt/extras/windevstuff/bin/x64/lib.exe"
